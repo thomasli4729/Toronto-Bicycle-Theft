@@ -1,0 +1,420 @@
+---
+title: 'Toronto’s Bicycle Theft Prevalence: A Realistic Guide to Protecting Your Valuable Bikes'
+author: 'Authors: Liwei Deng & Thomas Li'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, include=TRUE, eval=TRUE)
+required_packages <- c("tidyverse", "sf", "ggplot2","dplyr", "leaflet", "leaflet.extras", "lubridate")
+for (p in required_packages) {
+  if (!require(p, character.only = TRUE)) {
+    install.packages(p, character.only = TRUE)
+  }
+}
+library(tidyverse)
+library(sf)
+library(ggplot2)
+library(dplyr)
+library(leaflet)
+library(leaflet.extras)
+library(lubridate)
+#Importing data with .csv
+bike_thefts_csv <- read_csv("Bicycle_Thefts_Open_Data.csv") |>
+  mutate(
+    occurence_date = as_date(
+      OCC_DATE, format = "%a, %d %b %Y %H:%M:%S GMT"
+    ),
+    report_date = as_date(
+      REPORT_DATE, format = "%a, %d %b %Y %H:%M:%S GMT"
+    )
+  )
+bike_thefts_sf <- read_sf("Bicycle_Thefts_Open_Data.geojson") |>
+  mutate(
+    occurence_date = as_date(
+      OCC_DATE, format = "%a, %d %b %Y %H:%M:%S GMT"
+    ),
+    report_date = as_date(
+      REPORT_DATE, format = "%a, %d %b %Y %H:%M:%S GMT"
+    )
+  )
+```
+
+<br>
+
+## Introduction: Toronto’s Rising Bicycle Theft Crisis
+
+<span style="font-size:18px">In Toronto, the issue of bicycle theft has become a concern for the cyclist community. According to the Public Safety Data Portal managed by the Toronto Police Service, thousands of bicycles are reported stolen each year, which greatly increases the financial and emotional burden of Toronto’s biking community. By analyzing Bicycle Thefts Open Data from 2014 to 2024, this article examines the patterns in theft cases by bike type, color, cost, time, and location of stealing to provide essential information that could help cyclists around the city better protect their valuable bikes. With an understanding of where, when, and how thefts occur, cyclists can evaluate their own situations and make informed decisions to minimize risk. Our findings serve to raise awareness within the cyclist community and provide realistic insights and suggestions to restore trust in public spaces in Toronto.<span>
+
+<br>
+
+## Mapping Vulnerability: Stealing Hotspots and Risky Premises
+
+<br>
+
+```{r}
+# Plot 1: Number of Occurrences by Location Type
+location_type_width <- 1 / length(unique(bike_thefts_csv$PREMISES_TYPE))
+ggplot(bike_thefts_csv, aes(x = PREMISES_TYPE)) +
+  geom_bar(fill = "lightgreen",linewidth=(location_type_width)) +
+  labs(title = "Number of Bikes Stolen by Premise Type", x = "Premise Type", y = "Number of Bikes Stolen") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold")
+  )
+
+```
+
+<br>
+
+<span style="font-size:18px">The above bar chart showcases theft occurrences by different premises, including apartments, commercial buildings, educational residences, houses, outside, on transit, and other locations. We can see that the majority of bike thefts occur outside, followed by apartments, and other premise types don’t have as high numbers. This phenomenon indicates that outdoor and residential areas in populated areas of Toronto are particularly vulnerable to being stolen. The reason could be a lack of security measures of surveillance and locked enclosures in these areas.<span>
+
+<br>
+
+```{r}
+# Creating Geographical Heat Maps
+
+# Filtering Irrelevant data
+bike_thefts_sf_filtered <- bike_thefts_sf %>%
+  filter(!is.na(st_coordinates(geometry)[,1]) & 
+         !is.na(st_coordinates(geometry)[,2]) & 
+           # Longitude filter for City of Toronto
+         st_coordinates(geometry)[,1] >= -80 & st_coordinates(geometry)[,1] <= -78 &
+           # Latitude filter for City of Toronto
+         st_coordinates(geometry)[,2] >= 43 & st_coordinates(geometry)[,2] <= 44)     
+
+# Create the heatmap
+leaflet(data = bike_thefts_sf_filtered) %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%  # Use a light base map
+  addHeatmap(
+    lng = ~st_coordinates(geometry)[,1],  
+    lat = ~st_coordinates(geometry)[,2],
+    blur = 5,
+    max = 0.05,
+    radius = 5
+  ) %>%
+  addLegend("bottomright", colors = c('red', 'orange', 'yellow', '#00FF00', '#4500e0'), #setting colour scale
+            title = "Reported Bikes Stolen",
+            labels = c("More Dense", "", "", "", "Less Dense"),
+            opacity = 1)
+```
+
+<br>
+
+<span style="font-size:18px">Similarly, the Toronto heatmap shows theft occurrence by geographical location, displaying the theft density across Toronto with areas with a color spectrum starting from red, indicating high-density theft zones, to blue, indicating low density. The map highlights downtown Toronto as a significantly vulnerable area due to its concentrated bike theft cases. The high density of parked bicycles outdoors and inside the numerous condos could serve as the reason for the prevalence of bike thieves.<span>
+
+<span style="font-size:18px">In summary, cyclists locking their bikes in apartments and those who frequently travel outside in populated areas of Toronto should be extra cautious. If possible, always avoid parking your bikes outside exposed or in apartment buildings without proper and secure bike storage. Look for educational institutions and commercial buildings, where the cases of bike theft are few, to park your bikes for added security.<span>
+
+<br>
+
+## When Are Bikes at Risk? Seasonal and Weekly Patterns in Theft
+
+<br>
+
+```{r}
+# Plotting Heat Map of WOD and Month
+
+# Create a new data frame that summarizes the number of thefts by weekday and month
+weekday_month_summary <- bike_thefts_csv %>%
+  mutate(
+    day_of_week = factor(OCC_DOW, levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"), ordered = TRUE),
+    month = factor(OCC_MONTH, levels = c("January", "February", "March", "April", "May", "June", 
+                                         "July", "August", "September", "October", "November", "December"), ordered = TRUE)
+  ) %>%
+  group_by(day_of_week, month) %>%  
+  summarize(theft_count = n(), .groups = 'drop') %>% 
+  complete(day_of_week, month, fill = list(theft_count = 0))
+
+# Calculate total thefts for each month (row totals)
+month_totals <- weekday_month_summary %>%
+  group_by(month) %>%
+  summarize(theft_count = sum(theft_count)) %>%
+  mutate(day_of_week = "Total")  # Label as "Total" for the additional row
+
+# Calculate total thefts for each day of the week (column totals)
+day_totals <- weekday_month_summary %>%
+  group_by(day_of_week) %>%
+  summarize(theft_count = sum(theft_count)) %>%
+  mutate(month = "Total")  # Label as "Total" for the additional column
+
+# Combine the original data with the totals
+weekday_month_summary_with_totals <- bind_rows(weekday_month_summary, month_totals, day_totals)
+
+# Set the 'Total' rows and columns to have NA in the fill variable
+weekday_month_summary_with_totals <- weekday_month_summary_with_totals %>%
+  mutate(
+    fill_value = ifelse(day_of_week == "Total" | month == "Total", NA, theft_count)  # NA for Total rows/columns
+  )
+
+# Convert 'Total' labels to factor levels for ordering
+weekday_month_summary_with_totals$month <- factor(
+  weekday_month_summary_with_totals$month,
+  levels = c("January", "February", "March", "April", "May", "June",
+             "July", "August", "September", "October", "November", "December", "Total"),
+  ordered = TRUE
+)
+
+weekday_month_summary_with_totals$day_of_week <- factor(
+  weekday_month_summary_with_totals$day_of_week,
+  levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday", "Total"),
+  ordered = TRUE
+)
+
+# Plot the calendar heatmap with totals
+ggplot(weekday_month_summary_with_totals, aes(x = day_of_week, y = month, fill = fill_value)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = theft_count), color = "black") +
+  scale_fill_gradient(low = "white", high = "red") +
+  labs(
+    title = "Bikes Stolen by Day of the Week and Month",
+    x = "Day of the Week",
+    y = "Month",
+    fill = "Bikes Stolen") +
+  theme_classic() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold")  # Center and style the title
+  )
+```
+
+<br>
+
+<span style="font-size:18px">This heatmap shows the distribution of bike thefts across days of the week by month of the year. Each cell represents the number of thefts from the dataset and is colored based on this count. A darker shade of red in a cell indicates more thefts on this day of this month, and a lighter shade vice versa.<span>
+
+<span style="font-size:18px">From the chart, it can be observed that bike thefts peak during the summer months, with July and August having the highest occurrences. In hotter months, we see a consistent increase the the number of thefts throughout the week, which suggests that warmer weather may encourage more bike use, thereby generating a higher risk of theft consequently. By analyzing weekly trends, we can also observe that thefts tend to be slightly more frequent on weekdays, particularly on Tuesdays, Wednesdays, and Thursdays. This pattern implies bicycles can easily become targets during routine workdays, possibly due to the longer period of unattended storage.<span>
+
+<span style="font-size:18px">Similar to the caution you would take in populated areas, anyone with a bicycle should particularly be vigilant during summer months, especially from Tuesday to Thursday when riding outside. For example, using secure locks or parking in well-monitored areas may enhance protection when thefts are more frequent. If the concern persists, the cyclist community may propose additional security measures during these periods to the local police using our data visualizations as evidence.<span>
+
+<br>
+
+## What Bikes Do Thieves Target? Insights by Type and Value
+
+<br>
+
+```{R}
+# Plotting Box-plot With Stolen Frequences, Bike Type, and Bike Cost($)
+
+# Define the mapping of abbreviations to full names
+bike_type_labels <- c(
+  "RG" = "Road Gravel",
+  "RC" = "Road Cyclocross",
+  "MT" = "Mountain Bike",
+  "TO" = "Touring",
+  "OT" = "Other",
+  "EL" = "Electric",
+  "SC" = "Scooter",
+  "BM" = "BMX",
+  "TA" = "Tandem",
+  "FO" = "Folder",
+  "TR" = "Tricycle",
+  "RE" = "Recumbent",
+  "UN" = "Unicycle"
+)
+
+# Add full names for each bike type to the original data
+bike_thefts_csv <- bike_thefts_csv %>%
+  mutate(BIKE_TYPE_FULL = bike_type_labels[BIKE_TYPE])
+
+# Count occurrences of each bike type and reorder, placing "Other" at the end
+bike_type_counts <- bike_thefts_csv %>%
+  count(BIKE_TYPE_FULL) %>%
+  arrange(desc(n)) %>%
+  mutate(BIKE_TYPE_FULL = factor(BIKE_TYPE_FULL, levels = c(setdiff(BIKE_TYPE_FULL, "Other"), "Other")))
+
+# Update the factor levels in the original data frame 
+bike_thefts_csv$BIKE_TYPE_FULL <- factor(bike_thefts_csv$BIKE_TYPE_FULL, levels = levels(bike_type_counts$BIKE_TYPE_FULL))
+
+# Merge the bike type counts into the main data for color mapping
+bike_thefts_cost_filtered <- bike_thefts_csv %>%
+  left_join(bike_type_counts, by = "BIKE_TYPE_FULL") %>%
+  filter(!is.na(BIKE_COST))  # Ensure only non-NA costs are considered
+
+# Calculate Q1, Q3, and IQR for Cost
+cost_Q1 <- quantile(bike_thefts_cost_filtered$BIKE_COST, 0.25, na.rm = TRUE)
+cost_Q3 <- quantile(bike_thefts_cost_filtered$BIKE_COST, 0.75, na.rm = TRUE)
+cost_IQR <- cost_Q3 - cost_Q1
+
+# Calculate for outlier removal
+lower_cost_fence <- cost_Q1 - 1.5 * cost_IQR
+upper_cost_fence <- cost_Q3 + 1.5 * cost_IQR
+
+# Filter data to remove outliers
+bike_thefts_filtered_no_outliers <- bike_thefts_cost_filtered %>%
+  filter(BIKE_COST >= lower_cost_fence & BIKE_COST <= upper_cost_fence)
+
+# Calculate the average cost without outliers
+average_cost_no_outliers <- mean(bike_thefts_filtered_no_outliers$BIKE_COST, na.rm = TRUE)
+
+# Plot 2: Cost of Bikes Stolen
+
+# Filter out NA values setbreaks
+bike_thefts_filtered_cost <- bike_thefts_csv %>%
+  filter(!is.na(BIKE_COST))  # Exclude NA values
+
+# Define breaks and labels
+breaks <- c(0,1000,2000,3000,4000,5000, Inf)
+label <- c("0-1k", "1k-2k", "2k-3k", "3k-4k", "4k-5k", "5k+")
+
+# Plot the box plot with color hue representing the number of stolen bikes
+ggplot(bike_thefts_filtered_no_outliers, aes(x = BIKE_COST, y = BIKE_TYPE_FULL, fill = n)) +
+  geom_boxplot(color = "black", outlier.color = "black") +
+  geom_vline(xintercept = average_cost_no_outliers, color = "purple", linetype = "dashed", linewidth = 1) +
+  annotate("text", x = average_cost_no_outliers + 150, y = 8, label = "Average Cost", fontface = "bold", color = "purple", angle = 270) +
+  scale_fill_gradient(low = "lightyellow", high = "red", name = "Number of Bikes Stolen") +
+  labs(
+    title = "Distribution of Bike Costs by Type (Without Outliers)",
+    x = "Bike Cost ($)",
+    y = "Bike Type"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold")  # Center and style the title
+  )
+
+```
+
+<br>
+
+<span style="font-size:18px">With the vulnerable locations and the days and months in mind, cyclists with certain types of bikes may also need to be aware. The above is a box plot that demonstrates the distribution of the costs of all stolen bikes for different bike types with number of thefts also shown by color. It highlights the bikes that are more likely to be stolen and their typical price range to help bikers make informed decisions based on their financial situation.<span>
+
+<span style="font-size:18px">From the chart, of particular interest were Mountain bikes and Road Gravel bikes, which appear most frequently in theft reports. However, their median costs are both below the average cost for all types, meaning a loss of these bikes is unfortunate yet suffer less financially compared to other bike types. Conversely, Electric bikes and Road Cyclocross have a relatively high occurrence of thefts as well as higher than average costs. The owners of these bike types should be more aware to protect their assets because their bicycles are more appealing to thieves, and they could suffer more money loss if their loved bikes are stolen.<span>
+
+<br>
+
+```{R}
+# Plot the data with specified breaks
+ggplot(bike_thefts_filtered_cost, aes(x = cut(BIKE_COST, breaks = breaks, labels = label, include.lowest = TRUE))) +
+  geom_bar(fill = "orange", color = "black", linewidth = 0.5) +  # Add outline color and line width
+  labs(
+    title = "Number of Bikes Stolen by Bike Cost",
+    x = "Bike Cost",
+    y = "Number of Bikes Stolen"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold")  # Center and style the title
+  )
+```
+
+<br>
+
+<span style="font-size:18px">Furthermore, this bar chart also provides valuable insights. It shows that bicycles in the price range of $0 - $1,000 are most frequently stolen, with the reported cases decreasing as the bicycle cost decreases. Cheaper bikes are more popular choices for both bikers and thieves, with the former preferring them due to their versatility while the latter picking them to steal for a high resale value and relatively lower security. Mountain bike owners should be careful with their properties because these bikes generally fall into the vulnerable price range in addition to higher risk for thefts. If needed, people with expensive bicycles could consider insuring their bikes for extra security.<span>
+
+<br>
+
+## Stand Out or Blend In: How Bike Color Impacts Risk of Loss
+
+<br>
+
+```{r}
+cleaned_data <- bike_thefts_csv %>%
+  filter(!is.na(BIKE_COLOUR))
+
+# Step 2: Count occurrences of each color and get the top 10 colors
+top_10_colors <- cleaned_data %>%
+  count(BIKE_COLOUR) %>%
+  arrange(desc(n)) %>%
+  slice(1:10)  # Keep only the top 10 colors
+
+# Step 3: Filter the cleaned_data to keep only rows with the top 10 colors
+cleaned_data_top10 <- cleaned_data %>%
+  filter(BIKE_COLOUR %in% top_10_colors$BIKE_COLOUR)
+
+# Step 4: Recalculate percentages based on the filtered dataset
+cleaned_data_top10 <- cleaned_data_top10 %>%
+  count(BIKE_COLOUR) %>%
+  arrange(desc(n)) %>%
+  mutate(
+    percentage = n / sum(n) * 100,
+    internal_label = ifelse(row_number() <= 6 & row_number() != 1, paste0(round(percentage, 1), "%"), NA),
+    label1 = ifelse(row_number() == 7, paste0(round(percentage, 1), "%"), ""),
+    label2 = ifelse(row_number() == 8, paste0(round(percentage, 1), "%"), ""),
+    label3 = ifelse(row_number() == 9, paste0(round(percentage, 1), "%"), ""),
+    label4 = ifelse(row_number() == 10, paste0(round(percentage, 1), "%"), ""),
+    label5 = ifelse(row_number() == 1, paste0(round(percentage, 1), "%"), "")
+  )
+##
+color_palette_v <- c(
+  "BLK" = "Black",  # Black
+  "GRY" = "Gray",  # Gray
+  "BLU" = "Blue",  # Blue
+  "WHI" = "White",  # White
+  "RED" = "Red",  # Red
+  "SIL" = "Silver",  # Silver
+  "GRN" = "Green",  # Green
+  "ONG" = "Orange",  # Orange
+  "PLE" = "Purple",  # Purple
+  "DBL" = "Dark Blue"   # Dark Blue
+)
+cleaned_data_top10 <-cleaned_data_top10 %>% mutate(BIKE_COLOUR = color_palette_v)
+# Define colors for each bike color
+color_palette <- c(
+  "Black" = "#333333",  # Black
+  "Gray" = "#7E7E7E",  # Gray
+  "Blue" = "#4B9CD3",  # Blue
+  "White" = "#FFFFFF",  # White
+  "Red" = "#D32F2F",  # Red
+  "Silver" = "#D0D0D0",  # Silver
+  "Green" = "#388E3C",  # Green
+  "Orange" = "#FFA726",  # Orange
+  "Purple" = "#9C27B0",  # Purple
+  "Dark Blue" = "#1A237E"   # Dark Blue
+)
+
+# Ensure colors are ordered correctly
+cleaned_data_top10$BIKE_COLOUR <- factor(cleaned_data_top10$BIKE_COLOUR, levels = names(color_palette))
+
+# Create the pie chart
+ggplot(cleaned_data_top10, aes(x = "", y = n, fill = BIKE_COLOUR)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar("y") +
+  labs(title = "Top 10 Most Stolen Bicycle Colors") +
+  theme_void(base_size = 15) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold", color = "black"),
+    plot.background = element_rect(fill = "#FFB6C1"),  # Light gray background for contrast
+    legend.position = "right",
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 10),
+    legend.margin = margin(0, 10, 0, 0)
+  ) +
+  scale_fill_manual(values = color_palette) +
+  # Add internal labels for the top 6 largest sectors
+  geom_text(aes(label = internal_label), position = position_stack(vjust = 0.5), color = "black", size = 3.5, na.rm = TRUE) +
+  geom_text(aes(label = label1), hjust = -3.25, vjust = -5.5, color = "black", size = 3.5, na.rm = TRUE) +
+  geom_text(aes(label = label2), hjust = -2.25, vjust = -7.75, color = "black", size = 3.5, na.rm = TRUE) +
+  geom_text(aes(label = label3), hjust = -0.5, vjust = -10, color = "black", size = 3.5, na.rm = TRUE) +
+  geom_text(aes(label = label4), hjust = 0.75, vjust = -10.5, color = "black", size = 3.5, na.rm = TRUE) +
+  geom_text(aes(label = label5), hjust = 6.75, vjust = -12, color = "black", size = 3.5, na.rm = TRUE) +
+  geom_segment(data = cleaned_data_top10 %>% filter(label1 != ""),
+               aes(x = 1.2, xend = 1.6, y = 2500, yend = 3000),
+               color = "yellow") +
+  geom_segment(data = cleaned_data_top10 %>% filter(label2 != ""),
+               aes(x = 1.2, xend = 1.6, y = 1650, yend = 2000),
+               color = "yellow") +
+  geom_segment(data = cleaned_data_top10 %>% filter(label3 != ""),
+               aes(x = 1.2, xend = 1.6, y = 950, yend = 900),
+               color = "yellow") +
+  geom_segment(data = cleaned_data_top10 %>% filter(label4 != ""),
+               aes(x = 1.2, xend = 1.6, y = 300, yend = 100),
+               color = "yellow") +
+  geom_segment(data = cleaned_data_top10 %>% filter(label5 != ""),
+               aes(x = 1.2, xend = 1.6, y = 22000, yend = 22000),
+               color = "yellow") +
+  guides(fill = guide_legend(title = "Bike Color"))
+```
+
+<br>
+
+<span style="font-size:18px">Finally, this pie chart presents the top 10 colors of stolen bicycles, with each slice representing the proportion of thefts by the corresponding color. Black bicycles compose 40.9% of these cases, way higher than any other colors. It is followed by gray and blue bikes, with a relatively high percentage above 10% as well. The overwhelmingly high occurrence of theft of black bicycles could be attributed to its commonness among all bikes, making them more susceptible. In addition, dark colors like black and gray appear harder to distinguish, so they could be stolen easier when the owners are not aware.<span>
+
+<span style="font-size:18px">As a result, cyclists who wish to avoid bike theft may consider choosing less common or more distinguishable colors to make their bikes stand out, which may discourage stealing. From another perspective, having customized designs or using unique stickers on the bikes would make them less attractive to thieves as they would become much more recognizable, increasing the risk of theft activity.<span>
+
+<br>
+
+## Towards a Safer Toronto: What are the Next Steps?
+
+<span style="font-size:18px">The analysis of Toronto’s bicycle theft patterns presented in this article provides a cohesive guide to assist cyclists in making safer choices and minimizing theft risks on their valuable bicycles. Through the understanding of where and when thefts are the most frequent, as well as which bike types and colors are more likely to be stolen, the biking community can adopt a proactive approach to securing their bikes. To summarize, areas with high reported cases of theft, such as outdoors and inside downtown apartments, suggest an urgent need for increased security in these locations. Moreover, seasonal and weekly patterns also reveal that extra vigilance should be paid during summer months and on workdays when unattended bikes are at greater risk.<span>
+
+<span style="font-size:18px">It is essential for the Toronto Cycle Association to leverage these insights to promote enhanced security measures and advocate for improved bike storage solutions. Cyclists are encouraged to utilize our findings, including the vulnerability of Mountain bikes and Electric bikes as well as darker-colored bikes under risk of stealing, to make informed decisions on parking locations, bike type selection, and security measures. With these understandings in mind, we can increase community awareness and contribute to a more bicycle-friendly environment. By working together, we believe Toronto’s cycling community can reduce theft incidents and restore public trust in shared spaces.<span>
+
+<br>
